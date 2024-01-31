@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1.5
+# "as builder" lets us squash the layers and reduce the image size later.
+FROM ubuntu:22.04 as builder    
+
+ENV DEBIAN_FRONTEND=noninteractive TERM=xterm-256color MEMORY=4096 CPU=4 DISK_SIZE=50
+
+RUN echo "do some Setting Up" && \
+    apt-get update &&  \
+    apt-get -y full-upgrade &&  \
+	echo "Do basic install without any recommended packages, we don't need them wasting space." && \
+    apt-get install -y --no-install-recommends \
+    nano \
+    build-essential \
+    libguestfs-tools \
+    openssh-server \
+    curl \
+    net-tools \
+    gettext-base \
+    jq && \
+	echo "Install the next packages with recommends,as they appear to be necessary for Vagrant." && \
+    apt-get install -y \
+    libvirt-dev \
+    qemu-kvm \
+    libvirt-daemon-system && \
+	echo "Do some cleanup." && \ 
+    apt-get autoremove -y && \
+    apt-get clean && \
+    echo "Download and install Vagrant.  Installing Vagrant from repo is not advised as the WinRM library is not shipped with Vagrant installed via repos." && \ 
+	rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    curl -O https://releases.hashicorp.com/vagrant/$(curl -s https://checkpoint-api.hashicorp.com/v1/check/vagrant  | jq -r -M '.current_version')/vagrant_$(curl -s https://checkpoint-api.hashicorp.com/v1/check/vagrant  | jq -r -M '.current_version')-1_amd64.deb && \
+    dpkg -i vagrant_$(curl -s https://checkpoint-api.hashicorp.com/v1/check/vagrant  | jq -r -M '.current_version')-1_amd64.deb && \
+    rm      vagrant_$(curl -s https://checkpoint-api.hashicorp.com/v1/check/vagrant  | jq -r -M '.current_version')-1_amd64.deb && \
+    echo "Install Vagrant-libvirt vagrant plugin." && \
+	vagrant plugin install vagrant-libvirt && \
+    echo "prepare a folder for our vagrant box context to reside in. If we add persistence, this is the folder that gets exposed to the vagrant box by default." && \
+	mkdir /vagrant
+	
+#  copy the startup.sh script so that something will happen if you run this image, and you should not get any errors.
+COPY --chmod=755 startup.sh-minimalist startup.sh
+
+#  compress the multiple layers that make up this image into a single layer, making the image as small as possible.
+from scratch
+ENV DEBIAN_FRONTEND=noninteractive TERM=xterm-256color MEMORY=4096 CPU=4 DISK_SIZE=50
+COPY --from=builder / /
+ENTRYPOINT ["/startup.sh"]

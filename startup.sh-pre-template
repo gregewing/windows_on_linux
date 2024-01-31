@@ -1,0 +1,35 @@
+#!/bin/bash
+# Username: Administrator, vagrant
+# Password: vagrant
+
+set -eou pipefail
+
+# Do some necessary preparation of the environment.
+chown root:kvm /dev/kvm
+/usr/sbin/libvirtd --daemon
+/usr/sbin/virtlogd --daemon
+cd /vagrant
+
+# Define teh vagrant image thst will be set up in the final build.
+vagrant init "<<PUT_IMAGE_NAME_HERE>>"
+
+# Prepare Vagrantfile with ENVironment variables passed from docker.
+
+# In case this container has been run previously, and there is a Vagrantfile in the /vagrant folder, then we should
+#  support th euser by passing environment variables into it to set the CPU/RAM/DISK requested by the user by way of
+#  the ENVironment variables passed from docker.
+#  We probably don tneed this for the -pre iamge, but what the heck.
+if test -f Vagrantfile.orig; then
+  mv Vagrantfile.orig Vagrantfile
+fi
+if test -f Vagrantfile; then
+  awk -v line=$(awk '/end/{x=NR}END{print x}' Vagrantfile) 'NR==FNR{a[NR]=$0;next}{if(FNR==line){for(i=1;i<=NR;i++)print a[i]}print}' text_to_insert.txt Vagrantfile | awk 'NF' > Vagrantfile.out
+  mv Vagrantfile.out Vagrantfile
+  envsubst '$CPU,$MEMORY,$DISK_SIZE' < Vagrantfile > Vagrantfile.tmp
+  mv Vagrantfile Vagrantfile.orig
+  mv Vagrantfile.tmp Vagrantfile
+#  vagrant destroy -f
+  vagrant up
+fi
+
+exec "$@"

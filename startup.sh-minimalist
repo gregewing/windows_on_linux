@@ -1,0 +1,41 @@
+#!/bin/bash
+
+set -eou pipefail
+
+# Check to see if the CPU supports Virtualisation extensions
+vtxcores=$(egrep -c '(vmx|svm)' /proc/cpuinfo)
+if [ $vtxcores -gt 0 ]; then
+  # Good news !!
+  echo "Host reports "$vtxcores" VT-x cores available. This will probably work..."
+else
+  # Bad News !!
+  echo "Host CPU Reports 0 VT-x cores available, unable to proceed."
+  echo "Please enable VT-x or Virtualisation extensios in the underlying host platform and try again."
+  exit 0
+fi
+
+# Do some necessary setup in the environment so Vagrant will work.
+chown root:kvm /dev/kvm
+/usr/sbin/libvirtd --daemon
+/usr/sbin/virtlogd --daemon
+# drop the user into the /vagrant folder, where the context of their box will be extablishsed.
+cd /vagrant
+
+
+# In case this container has been run previously, and there is a Vagrantfile in the /vagrant folder, then we should 
+#  support th euser by passing environment variables into it to set the CPU/RAM/DISK requested by the user by way of
+#  the ENVironment variables passed from docker.
+if test -f Vagrantfile.orig; then
+  mv Vagrantfile.orig Vagrantfile
+fi
+if test -f Vagrantfile; then
+  awk -v line=$(awk '/end/{x=NR}END{print x}' Vagrantfile) 'NR==FNR{a[NR]=$0;next}{if(FNR==line){for(i=1;i<=NR;i++)print a[i]}print}' text_to_insert.txt Vagrantfile | awk 'NF' > Vagrantfile.out
+  mv Vagrantfile.out Vagrantfile
+  envsubst '$CPU,$MEMORY,$DISK_SIZE' < Vagrantfile > Vagrantfile.tmp
+  mv Vagrantfile Vagrantfile.orig
+  mv Vagrantfile.tmp Vagrantfile
+#  vagrant destroy -f
+  vagrant up
+fi
+
+exec "$@"

@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.5
+# "as builder" lets us squash the layers and reduce the image size later.
+FROM w_o_l_intermediate_build:latest as builder
+
+# copy any cached vagrant box data and disk image into the docker image we are creating
+COPY _data/<<PUT_PATH_HERE>>/boxes root/.vagrant.d/boxes
+COPY _data/<<PUT_PATH_HERE>>/libvirt var/lib/libvirt
+COPY _data/<<PUT_PATH_HERE>>/vagrant/Vagrantfile.orig /vagrant/Vagrantfile
+# copy in the relevant Vagrant file and re-copy the startup.sh script just to be sure it's there.
+COPY --chmod=755 startup.sh-prod startup.sh
+
+
+#  compress the multiple layers that make up this image into a single layer, making the image as small as possible.
+from scratch
+COPY --from=builder / /
+ENV DEBIAN_FRONTEND=noninteractive TERM=xterm-256color MEMORY=4096 CPU=4 DISK_SIZE=50
+ENTRYPOINT ["/startup.sh"]

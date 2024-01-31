@@ -1,0 +1,13 @@
+
+Check everything
+
+re-explore cross platform builds. ??
+
+Update the comments and documentation at the head of the main script
+
+
+
+
+
+
+

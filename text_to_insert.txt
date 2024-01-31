@@ -1,0 +1,17 @@
+  config.vm.network "private_network", ip: "192.168.121.10"
+  config.vm.network "forwarded_port", guest: 445, host: 445
+  config.vm.box_check_update = false
+
+    config.vm.provider "libvirt" do |libvirt|
+        libvirt.cpus = $CPU
+        libvirt.memory = $MEMORY 
+        libvirt.machine_virtual_size = $DISK_SIZE 
+#        libvirt.cputopology sockets: 1, cores: 4,  threads: 2
+#        libvirt.pci domain: "0000", bus: "00", slot: "02", function: "0"
+    end
+     config.vm.provision "shell", powershell_elevated_interactive: true, privileged: true, inline: <<-SHELL
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+        Resize-Partition -DriveLetter "C" -Size (Get-PartitionSupportedSize -DriveLetter "C").SizeMax
+        # Enable too long paths
+        New-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+   SHELL
