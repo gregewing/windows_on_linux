@@ -76,7 +76,7 @@ The best article I found that described the potential benefits from docker resou
 <b>Getting Started</b><br>
 This section talks about the :minimalist image, there is more below in relation to the other images.
 
-The following docker run command will give you a container that you can use to run whatever vagrant image you like.  I have not tested them all, so your success may vary based on how the image was created, but basically any image for libvirt should at least start here if it starts on any other libvirt platform. I the image uses VNC for remote desktop, be sure to expose the correct ports.<br>
+The following docker run command will give you a container that you can use to run whatever vagrant image you like.  I have not tested them all, so your success may vary based on how the image was created, but basically any image for libvirt should at least start here if it starts on any other libvirt platform. If the image uses VNC for remote desktop, be sure to expose the correct ports.<br>
 <b>N.B.</b> some of these options may not be suitable for all environments, given the general loosening of security)
 
 <b>This will give you a container running Vagrant, but has no nested vagrant box image<br>
