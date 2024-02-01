@@ -5,16 +5,16 @@ The script in this project <code>BuildWindowsOnLinuxImage</code> is used to crea
 
 You will need all the files from the project in a single folder as they are all required to build the bundled vagrant box in a docker image.  There is copious commenting in the code to describe whats going on, but the gist of it is as follows:
 
-  Step 0 - Prepare to build, and figure out what we've been asked to build
-  Step 1 - Build an image with vagrant installed, ready for customisation
-  Step 2 - Build on that base and customise it with the required box
-  Step 3 - Run the image we just created and let it download the vagrant box
-  Step 4 - Watch to make sure docker, and vagarnt, startup completely
-  Step 5 - Harvest only the files we need to keep things as small as possible
-  Step 6 - Halt the Vagrant box cleanly, stop and remove docker container
-  Step 7 - Build the intended contaier image using the data captured so far
-  Step 8 - Remove the intermediate image used to capture the vagrant data
-  Step 9 - Publish the results to hub.docker.com repository
+  Step 0 - Prepare to build, and figure out what we've been asked to build<br>
+  Step 1 - Build an image with vagrant installed, ready for customisation<br>
+  Step 2 - Build on that base and customise it with the required box<br>
+  Step 3 - Run the image we just created and let it download the vagrant box<br>
+  Step 4 - Watch to make sure docker, and vagarnt, startup completely<br>
+  Step 5 - Harvest only the files we need to keep things as small as possible<br>
+  Step 6 - Halt the Vagrant box cleanly, stop and remove docker container<br>
+  Step 7 - Build the intended contaier image using the data captured so far<br>
+  Step 8 - Remove the intermediate image used to capture the vagrant data<br>
+  Step 9 - Publish the results to hub.docker.com repository<br>
 
 The reason I wrote so many steps is so that we can build as small a docker image as possible.  When you initialise a vagrant box under normal circumstances, it will download the vagrant box, then copy it locally into a local cache.  To get a running instance of the vagrant box is is sufficient to keep only one copy of the image and symlink it to the repository where vagrant wants it to be, so thats what we do here, amonng a few other things to make things reliable and to enable simple configuration of the CPU. RAM and DISK allocated to the vagrant box.  I went with this multi-stage approach because there are other metadata files that 
 
