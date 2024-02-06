@@ -39,8 +39,8 @@
 # Example commands invoking this script:
 # ./BuildWindowsOnLinuxImage
 # ./BuildWindowsOnLinuxImage --help
-# ./BuildWindowsOnLinuxImage minimalist
-# ./BuildWindowsOnLinuxImage peru/windows-10-enterprise-x64-eval     !<<  This is the default action if no image is requested >>!
+# ./BuildWindowsOnLinuxImage minimalist           !<<  This is the default action if no image is requested >>!
+# ./BuildWindowsOnLinuxImage peru/windows-10-enterprise-x64-eval
 # ./BuildWindowsOnLinuxImage peru/windows-server-2016-standard-x64-eval
 # ./BuildWindowsOnLinuxImage peru/windows-server-2019-standard-x64-eval
 # ./BuildWindowsOnLinuxImage peru/windows-server-2022-standard-x64-eval
@@ -50,65 +50,104 @@
 #####  Setup - Configureable items and Constants for use later.                     #####
 #########################################################################################
 
-### Constants ###
-# pre-define colours for text output when we need them
-BLUE='\033[0;34m'
-NC='\033[0m'
-workingdir=$(pwd)
-
 ### Local Variables ###
-# Configure here the hub.docker.com profile you want to push images to
+# Configure here the hub.docker.com profile you want to push images to.  Prepend with private registry name if required (private.registry.local/gregewing)
 docker_hub_profile="gregewing"
 
 # Configure here the docker hub repository name that you want to push miages to.
 repo_base_name="windows_on_linux"
 
-# Configure here the name you want to give to the intemediate build that will only exist temporarily on  the buld server
+# Push completed builds to registry? (yes/no) 'no' will load the image into the local docker image cache only.
+push_to_registry="no"
+
+
+### Constants ###
+# pre-define colours for text output when we need them
 intermediate_image_name="w_o_l_intermediate_build"
+BLUE='\033[0;34m'
+NC='\033[0m'
+workingdir=$(pwd)
+uuid=$(uuidgen | cut -c 1-8)
 
 
 #########################################################################################
 #####  Step 0 - Prepare to build, and figure out what we've been asked to build     #####
 #########################################################################################
 
+# Define a function to run when CTRL-C is pressed, this provides an opportunity to clean up any partially built images.
+ctrl_c() {
+    echo "---$(date +"%T")--- CTRL-C was pressed. Removing any part-built image before exiting."
+    /usr/bin/docker stop $intermediate_image_name"_"$uuid > /dev/null 2>&1
+    /usr/bin/docker rm $intermediate_image_name"_"$uuid > /dev/null 2>&1
+    rm Dockerfile-pre_$uuid > /dev/null 2>&1
+    rm Dockerfile-prod_$uuid > /dev/null 2>&1
+    rm startup.sh-pre_$uuid > /dev/null 2>&1
+    echo "Cleanup finished, now exiting.."
+    exit 1
+}
+
+# This will catch the (CTRL-C) signal and execute the 'ctrl_c' function above
+trap ctrl_c INT
+
 # Check to see what the script has been asked to build.
 box_init_string="$1"
+
+# Still checking, did the user omit to request s specific image?  if so, default to 'minimalist'.
+if [ -z "$box_init_string" ]; then
+  box_init_string="minimalist"
+fi
+
 if [ "$box_init_string" = "minimalist" ]; then
   echo "---$(date +"%T")--- You have requested only the :minimalist image be built using Dockerfile-minimalist."
-  echo "--------------   This gives us an image that we can publish as 'unpopulated' to hub.docker.com"
-  echo "--------------   Proceeding to build and push "$docker_hub_profile"/"$repo_base_name":minimalist only."
   /usr/bin/docker login > /dev/null 2>&1
-  /usr/bin/docker buildx build -t $docker_hub_profile/$repo_base_name:minimalist -f $workingdir/Dockerfile-minimalist $workingdir/ --push
+  if [ "$push_to_registry" = "yes" ]; then
+    echo "--------------   This gives us an image that we can publish as 'unpopulated' to hub.docker.com"
+    echo "--------------   Proceeding to build and push "$docker_hub_profile"/"$repo_base_name":minimalist only."
+    /usr/bin/docker buildx build -t $docker_hub_profile/$repo_base_name:minimalist -f $workingdir/Dockerfile-minimalist $workingdir/ --push
+  else
+    echo "--------------   This gives us an image that we can use locally 'unpopulated' with only vagrant installed"
+    echo "--------------   Proceeding to build and load "$docker_hub_profile"/"$repo_base_name":minimalist only."
+    /usr/bin/docker buildx build -t $docker_hub_profile/$repo_base_name:minimalist -f $workingdir/Dockerfile-minimalist $workingdir/ --load
+  fi
   exit 0
 fi
 
 # Still checking how we started, did the user ask for --help ?
 if [ "$box_init_string" = "--help" ]; then
+  echo ""
   echo "  Usage:  scriptname [OPTIONS]"
   echo ""
-  echo "  A scripted build process for creating docker containers with embedded vagrant box images"
+  echo "  A scripted build process for creating docker containers with embedded vagrant box images."
   echo ""
   echo "  Options:"
-  echo "    minimalist                     Create a fresh build of a docker container with no embedded vagrant box image"
-  echo "    <vagrant_image_init_string>    Create a fresh build of a docker container with a specfic embedded box image"
+  echo "    minimalist                     Create a fresh build of a docker container with no embedded vagrant box image."
+  echo "    <vagrant_image_init_string>    Create a fresh build of a docker container with a specfic embedded box image."
   echo ""
-  echo "  Running the script with no parameters will default to creating a docker container with a Windows10 embedded vagrant box image"
+  echo "  Running the script with no parameters will default to creating a docker image with only vagrant and libvirt installed"
+  echo "  there will be no vagrant box image included win the docker image."
   echo ""
-  echo "  Example : ./BuildWindowsOnLinuxImage peru/windows-server-2019-standard-x64-eval"
-  echo "      will produce a docker container with embedded vagrant box image of peru's windows server 2019 stardnard x64 eval image."
+  echo "  Example : ./BuildWindowsOnLinuxImage --help               < see this help text >"
+  echo "            ./BuildWindowsOnLinuxImage minimalist           < This is the default action if no image is requested >"
+  echo "            ./BuildWindowsOnLinuxImage peru/windows-10-enterprise-x64-eval"
+  echo "            ./BuildWindowsOnLinuxImage peru/windows-server-2016-standard-x64-eval"
+  echo "            ./BuildWindowsOnLinuxImage peru/windows-server-2019-standard-x64-eval"
+  echo "            ./BuildWindowsOnLinuxImage peru/windows-server-2022-standard-x64-eval"
   echo ""
-  echo "  edit the script to set parameters for your own build purposes using the Local Variables section near the top."
+  echo "   Where a vagrant box 'init' string is included when invoking the script will create a docker image with"
+  echo "   that specific vagrant box embedded. The image will be size optimised to containtonly those files required."
+  echo ""
+  echo "   Thre are some customisable elements at the top of the script, edit them to meet your specific requirements in the"
+  echo "   section labelled \"Local Variables\" near the top."
+  echo ""
+  echo "   The script will make a suggestion for a docker command line to start the image that was created, but this will"
+  echo "   likely require some customisation to match the image type (exported ports for VNC or services etc.) and to suit"
+  echo "   the system requirements (CPU, RAM and DISK)." 
   echo ""
   exit 0
 fi
 
-# Still checking, did the user omit to request s specific image?  if so, default to win10.
-if [ -z "$box_init_string" ]; then
-  box_init_string="peru/windows-10-enterprise-x64-eval"
-fi
-
 # Define the name of the container we are building, based on the requested build.
-repo_prod_name="windows_on_linux:"$(echo $box_init_string | sed 's/\//_/1')
+repo_prod_name=$repo_base_name":"$(echo $box_init_string | sed 's/\//_/1')
 # create a name for the cache folder that we will copy data into layer, for re-builds.  This means we dont have to download the
 #  build data every time. Putting each build context into its own folder means we can cache multiple builds.
 cache_path=$(echo $box_init_string | sed 's/\//_/1')
@@ -127,13 +166,11 @@ if ! test -f  _data/$cache_path/vagrant ; then
   mkdir -p _data/$cache_path/vagrant
 fi
 
-# Do some cleanup.  Stop the previously running container, just in case it actually exists, we don't want a clash as our
-#  script will fail.  Itried it and the results were not good.  Also remove the previous container, just incase it's been left hanging arond.
-echo "---$(date +"%T")--- Cleaning up the docker environment in case the previous run failed."
-/usr/bin/docker stop $intermediate_image_name > /dev/null 2>&1
-/usr/bin/docker rm $intermediate_image_name > /dev/null 2>&1
+## Do some cleanup.  Stop the previously running container, just in case it actually exists, we don't want a clash as our
+##  script will fail.  Itried it and the results were not good.  Also remove the previous container, just incase it's been left hanging arond.
+#echo "---$(date +"%T")--- Cleaning up the docker environment in case the previous run failed."
 
-# Give the user a neads-up of what we are about to build, and give them the chance to cancel.
+# Give the user a heads-up of what we are about to build, and give them the chance to cancel.
 echo "---$(date +"%T")--- Preparing docker image with pre-configured vagrant box : ${BLUE}"$box_init_string"${NC} CTRL-C to cancel now if this is not what you want."
 for i in $(seq 10 -1 1); do
   printf "\r--------------   %d seconds before proceeding. " $i
@@ -142,7 +179,7 @@ done
 printf "\r--------------   Countdown complete, proceeding with build.   \n"
 
 # Prepare startup.sh-pre, for the image that was requested, and make it ready for import during build, via the Docekrfile-pre, later on.
-awk -v r="$box_init_string" '{gsub(/"<<PUT_IMAGE_NAME_HERE>>"/, "" r ""); print}' startup.sh-pre-template > startup.sh-pre
+awk -v r="$box_init_string" '{gsub(/"<<PUT_IMAGE_NAME_HERE>>"/, "" r ""); print}' startup.sh-pre-template > startup.sh-pre"_"$uuid
 
 
 #########################################################################################
@@ -153,50 +190,69 @@ awk -v r="$box_init_string" '{gsub(/"<<PUT_IMAGE_NAME_HERE>>"/, "" r ""); print}
 ###### Prefer to build with buildx as it is eliminates some inconsistences (cgroups on host bug) and also enables the unpopulated minimalist
 ######  images to be used to build downstream containers on other build hosts withouth worrying about getting the right linux-image-package
 ######  for the kernel running on the host..
-echo "---$(date +"%T")--- Stage 1 - Build the required base UNPOPULATED container from Dockerfile-minimalist."
-echo "--------------   This gives us an image that we can publish as 'unpopulated' to hub.docker.com"
-echo "--------------   We will then use this to build another image with embedded : "$box_init_string
+echo "---$(date +"%T")---  - Stage 1 - Build the required base UNPOPULATED container from Dockerfile-minimalist."
 /usr/bin/docker login > /dev/null 2>&1
-/usr/bin/docker buildx build -t $docker_hub_profile/$repo_base_name:minimalist -f $workingdir/Dockerfile-minimalist $workingdir/ --push
+  if [ "$push_to_registry" = "yes" ]; then
+    echo "--------------   This gives us an image that we can publish as 'unpopulated' to hub.docker.com"
+    echo "--------------   We will then use this to build another image with embedded : "$box_init_string
+    echo "--------------   Proceeding to build and push "$docker_hub_profile"/"$repo_base_name":minimalist only."
+    /usr/bin/docker buildx build -t $docker_hub_profile/$repo_base_name:minimalist -f $workingdir/Dockerfile-minimalist $workingdir/ --push
+  else
+    echo "--------------   This gives us an image that we can use locally 'unpopulated' with only vagrant installed"
+    echo "--------------   We will then use this to build another image with embedded : "$box_init_string
+    echo "--------------   Proceeding to build and load "$docker_hub_profile"/"$repo_base_name":minimalist only."
+    /usr/bin/docker buildx build -t $docker_hub_profile/$repo_base_name:minimalist -f $workingdir/Dockerfile-minimalist $workingdir/ --load
+  fi
 
 
 #########################################################################################
 #####  Step 2 - Built on that base and customise it with the required box           #####
 #########################################################################################
 
+echo "---$(date +"%T")---  - Stage 2 - Build a temporary image using the above as a base, and any cached data available for the requested vagrant box."
+
 # Customise the DockerFiles so they refer to the requested image.
-awk -v r="$cache_path" '{gsub(/<<PUT_PATH_HERE>>/, "" r ""); print}' Dockerfile-pre-template > Dockerfile-pre
-awk -v r="$cache_path" '{gsub(/<<PUT_PATH_HERE>>/, "" r ""); print}' Dockerfile-prod-template > Dockerfile-prod
+awk -v r="$cache_path" '{gsub(/<<PUT_PATH_HERE>>/, "" r ""); print}' Dockerfile-pre-template > Dockerfile-pre-temp
+awk -v r="startup.sh-pre_$uuid" '{gsub(/<<STARTUP_FILE>>/, "" r ""); print}' Dockerfile-pre-temp > Dockerfile-pre"_"$uuid
+rm Dockerfile-pre-temp
+
+awk -v r="$cache_path" '{gsub(/<<PUT_PATH_HERE>>/, "" r ""); print}' Dockerfile-prod-template > Dockerfile-prod-temp
+awk -v r="$intermediate_image_name"_"$uuid" '{gsub(/<<BASE_IMAGE>>/, "" r ""); print}' Dockerfile-prod-temp > Dockerfile-prod"_"$uuid
+rm Dockerfile-prod-temp
 
 # build the first stage container from the Dockerfile.
 ###### prefer to use build (no x)  as its quicker, but I think in future buildx will be better if cross platform builds are necessary.
 ######  Both provided here for flexability, but note that bacuase of the need to include linux-image relative to the build host and also
 ######  the kernel specific version of vagrant thet gets pulled, cross platform builds are not likely to work without some more effort,
 ######  so it wold be simpler to build the necessary images on the platform type required (arm64/amd64 etc.)
-echo "---$(date +"%T")--- Build the intermediate container from the Dockerfile-pre."
-/usr/bin/docker  image  build -t $intermediate_image_name -f Dockerfile-pre .
-#/usr/bin/docker buildx build -t $intermediate_image_name -f $workingdir/Dockerfile-pre $workingdir/ --load
+echo "---$(date +"%T")--- Build the intermediate container from the Dockerfile-pre. This is temporary and will be kept local and never pushed to a remote registry."
+/usr/bin/docker  image  build -t $intermediate_image_name"_"$uuid -f Dockerfile-pre"_"$uuid .
+#/usr/bin/docker buildx build -t $intermediate_image_name"_"$uuid -f $workingdir/Dockerfile-pre"_"$uuid $workingdir/ --load
 
 
 #########################################################################################
 #####  Step 3 - Run the image we just created and let it download the vagrant box   #####
 #########################################################################################
 
+echo "---$(date +"%T")---  - Stage 3 - Run the image we just created, and let it set up the vagrant box, downloading data as required."
+
 # Run the container that we just created, so we can customise it using configuration in the Vagrantfile-pre which we customised above.
 echo "---$(date +"%T")--- Run the docker container we just created, so it can instantiate the vagrant image we need."
-/usr/bin/docker run --privileged -itd --rm --name $intermediate_image_name --device=/dev/kvm --device=/dev/net/tun -v /sys/fs/cgroup:/sys/fs/cgroup:rw  --cap-add=NET_ADMIN --cap-add=SYS_ADMIN $intermediate_image_name bash > /dev/null 2>&1
+/usr/bin/docker run --privileged -itd --rm --name $intermediate_image_name"_"$uuid --device=/dev/kvm --device=/dev/net/tun -v /sys/fs/cgroup:/sys/fs/cgroup:rw  --cap-add=NET_ADMIN --cap-add=SYS_ADMIN $intermediate_image_name"_"$uuid bash > /dev/null 2>&1
 
 
 #########################################################################################
 #####  Step 4 - Watch to make sure docker, and vagarnt startup completely           #####
 #########################################################################################
 
+echo "---$(date +"%T")---  - Stage 4 - Monitor the container we just started, waiting for the vagrant box to complete its setup."
+
 # Wait for the docker container to start before proceeding
 # Loop until the container is found
 echo "---$(date +"%T")--- Waiting for docker container to show up in docker ps."
 while true; do
     # Check if the process is running
-    if docker ps -a | grep $intermediate_image_name > /dev/null; then
+    if docker ps -a | grep $intermediate_image_name"_"$uuid > /dev/null; then
         # Do Nothing
         echo "---$(date +"%T")--- Docker container started."
         break
@@ -209,12 +265,12 @@ done
 # Wait until the vagrant provess is seen inside the docker container
 # Loop until the process is found
 echo "---$(date +"%T")--- Waiting for vagrant to instantiate the required vagrant image inside the docker container."
-echo "--------------    This may require a BIG DOWNLOAD and may take a long time.  Run  'docker logs -f "$intermediate_image_name"'"
+echo "--------------    This may require a BIG DOWNLOAD and may take a long time.  Run  'docker logs -f "$intermediate_image_name"_"$uuid"'"
 echo "--------------    in a separate terminal window for more detailed information. N.B. this can look stuck, but it's probably not."
 echo "--------------    Though, any repeating messages after this line means something has gone wrong. Check the various files and try again."
 while true; do
     # Check if the process is running
-    if docker container top $intermediate_image_name |  grep 'vagrant up' > /dev/null; then
+    if docker container top $intermediate_image_name"_"$uuid |  grep 'vagrant up' > /dev/null; then
         echo "---$(date +"%T")--- The Vagrant image is up and running..."
         break
     else
@@ -227,7 +283,7 @@ done
 echo "---$(date +"%T")--- Waiting for 'vagrant up' process to end, meaning the process of starting the vagrant box image is complete."
 while true; do
     # Check if the process is running
-    if docker exec -it  $intermediate_image_name ps -ef | grep 'vagrant up' > /dev/null; then
+    if docker exec -it  $intermediate_image_name"_"$uuid ps -ef | grep 'vagrant up' > /dev/null; then
     sleep 10
         # Do Nothing
     else
@@ -241,14 +297,16 @@ done
 #####  Step 5 - Harvest only the files we need to keep things as small as possible. #####
 #########################################################################################
 
+echo "---$(date +"%T")---  - Stage 5 - Harvest any data from the running image that is not already cached, so we can use it later in the final build."
+
 # Gather and prepare the data we need from the running image for use later in the process.
-RESULT="$(/usr/bin/docker exec -it $intermediate_image_name vagrant --machine-readable box list)"
+RESULT="$(/usr/bin/docker exec -it "$intermediate_image_name"_"$uuid" vagrant --machine-readable box list)"
 box_name=$(echo $(echo "$RESULT" | grep name | sed 's/^.*,//g' | sed 's/[[:space:]]*$//' | sed 's/\//-VAGRANTSLASH-/1'))
 box_arch=$(echo $(echo "$RESULT" | grep arch | sed 's/^.*,//g' | sed 's/[[:space:]]*$//'))
 box_prov=$(echo $(echo "$RESULT" | grep prov | sed 's/^.*,//g' | sed 's/[[:space:]]*$//'))
 box_ver=$(echo $(echo "$RESULT"  | grep vers | sed 's/^.*,//g' | sed 's/[[:space:]]*$//'))
 
-#Build up the necessary strings we need
+# Build up the necessary strings we need
 if [ $box_arch = "n/a" ]; then
   AA=$box_name"/"$box_ver"/"$box_prov
 else
@@ -261,27 +319,27 @@ CC=$box_name"_vagrant_box_image_"$box_ver"_box.img"
 echo "---$(date +"%T")--- Checking what files we need to copy to the build server for use later and copying what we need."
 if ! test -f "_data/$cache_path/boxes/"$AA"/metadata.json"; then
   mkdir -p "_data/$cache_path/boxes/"$AA
-  docker cp $intermediate_image_name":/root/.vagrant.d/boxes/"$AA"/metadata.json" "_data/$cache_path/boxes/"$AA"/"
+  docker cp $intermediate_image_name"_"$uuid":/root/.vagrant.d/boxes/"$AA"/metadata.json" "_data/$cache_path/boxes/"$AA"/"
 fi
 
 if ! test -f "_data/$cache_path/boxes/"$AA"/Vagrantfile"; then
   mkdir -p "_data/$cache_path/boxes/"$AA
-  docker cp $intermediate_image_name":/root/.vagrant.d/boxes/"$AA"/Vagrantfile" "_data/$cache_path/boxes/"$AA"/"
+  docker cp $intermediate_image_name"_"$uuid":/root/.vagrant.d/boxes/"$AA"/Vagrantfile" "_data/$cache_path/boxes/"$AA"/"
 fi
 
 if ! test -f "_data/$cache_path/boxes/"$BB"/metadata_url"; then
   mkdir -p "_data/$cache_path/boxes/"$BB
-  docker cp $intermediate_image_name":/root/.vagrant.d/boxes/"$BB"/metadata_url" "_data/$cache_path/boxes/"$BB"/"
+  docker cp $intermediate_image_name"_"$uuid":/root/.vagrant.d/boxes/"$BB"/metadata_url" "_data/$cache_path/boxes/"$BB"/"
 fi
 
 if ! test -f "_data/$cache_path/libvirt/images/"$CC; then
   mkdir -p "_data/$cache_path/libvirt/images/"
-  docker cp $intermediate_image_name":/var/lib/libvirt/images/"$CC "_data/$cache_path/libvirt/images/"
+  docker cp $intermediate_image_name"_"$uuid":/var/lib/libvirt/images/"$CC "_data/$cache_path/libvirt/images/"
 fi
 
 if ! test -f "_data/$cache_path/vagrant/Vagrantfile.orig"; then
   mkdir -p "_data/$cache_path/vagrant/"
-  docker cp $intermediate_image_name":/vagrant/Vagrantfile.orig" "_data/$cache_path/vagrant/"
+  docker cp $intermediate_image_name"_"$uuid":/vagrant/Vagrantfile.orig" "_data/$cache_path/vagrant/"
 fi
 
 
@@ -293,14 +351,16 @@ echo "---$(date +"%T")--- Finished checking and caching files we will need later
 #####  Step 6 - Halt the Vagrant box cleanly, stop and remove docker container      #####
 #########################################################################################
 
+echo "---$(date +"%T")---  - Stage 6 - Stop and remove the container we just created, we don't need it any more."
+
 # Halt the vagrant image. we've got what we need from it to build a pre-populated docker container image.
 echo "---$(date +"%T")--- Sending vagrant instructions to halt the vagrant image."
-/usr/bin/docker exec -it --workdir /vagrant $intermediate_image_name vagrant halt
+/usr/bin/docker exec -it --workdir /vagrant $intermediate_image_name"_"$uuid vagrant halt
 # Loop until the process is gone
 echo "---$(date +"%T")--- Waiting for vagrant process to terminate."
 while true; do
     # Check if the process is running
-    if docker exec -it  $intermediate_image_name ps -ef | grep qemu > /dev/null; then
+    if docker exec -it  $intermediate_image_name"_"$uuid ps -ef | grep qemu > /dev/null; then
     sleep 10
         # Do Nothing
     else
@@ -311,28 +371,55 @@ done
 
 # stop the docker container ( it should automatically delete itself )
 echo "---$(date +"%T")--- Stop the running intermediate docker container as a form of cleanup."
-/usr/bin/docker stop $intermediate_image_name  > /dev/null 2>&1
+/usr/bin/docker stop $intermediate_image_name"_"$uuid  > /dev/null 2>&1
 
 
 #########################################################################################
-#####  Step 7 - Built the intended contaier image using the data captured so far    #####
+#####  Step 7 - Build the intended contaier image using the data captured so far    #####
 #########################################################################################
+
+echo "---$(date +"%T")---  - Stage 7 - Build the final image, using the cached data from the stages above."
 
 # build the second stage container from the Dockerfile.
 ###### prefer to use build (no x) as it's quicker, but I think in future buildx will be better depending on the need for cross
 ###### platform builds, see notes above.  Both provided here for flexability.
 echo "---$(date +"%T")--- Build the required base container from the Dockerfile."
-/usr/bin/docker  image  build -t $docker_hub_profile/$repo_prod_name -f Dockerfile-prod . 
-#/usr/bin/docker buildx build -t $docker_hub_profile/$repo_prod_name -f $workingdir/Dockerfile-prod $workingdir/ --push
+/usr/bin/docker  image  build -t $docker_hub_profile/$repo_prod_name -f Dockerfile-prod"_"$uuid . 
+#/usr/bin/docker buildx build -t $docker_hub_profile/$repo_prod_name -f $workingdir/Dockerfile-prod"_"$uuid $workingdir/ --push
 
 
 #########################################################################################
 #####  Step 8 - Remove the intermediate image used to capture the vagrant data      #####
 #########################################################################################
 
+echo "---$(date +"%T")---  - Stage 8 - Remove the image used to configure the vagrant box, we used its data to create the desired image."
+
 # Delete the intermediate image, we don't need it any more.
 echo "---$(date +"%T")--- Deleting intermediate docker build image."
-/usr/bin/docker rmi $intermediate_image_name > /dev/null 2>&1
+/usr/bin/docker rmi $intermediate_image_name"_"$uuid > /dev/null 2>&1
+
+#########################################################################################
+#####  Step 9 - Publish the results to hub.docker.com repository                    #####
+#########################################################################################
+
+echo "---$(date +"%T")---  - Stage 9 - Push the docker image to the repository, if required, and do some cleanup."
+
+# publish (or not) what we just created.
+
+  if [ "$push_to_registry" = "yes" ]; then
+    echo "---$(date +"%T")--- Pushing to Docker Hub"
+    #/usr/bin/docker push $docker_hub_profile/$repo_prod_name > /dev/null 2>&1
+    /usr/bin/docker push $docker_hub_profile/$repo_prod_name
+    echo "---$(date +"%T")--- Pushing complete."
+  else
+    echo "---$(date +"%T")--- Not pushing image to dockker hub, as requested. It is available locally only as : "$docker_hub_profile/$repo_prod_name
+
+  fi
+
+# clean up the customised files we created, to leave the folder as it was when we started
+    rm Dockerfile-pre_$uuid > /dev/null 2>&1
+    rm Dockerfile-prod_$uuid > /dev/null 2>&1
+    rm startup.sh-pre_$uuid > /dev/null 2>&1
 
 # let the user know a reasonable first docker run command to try.
 echo "--------------"
@@ -340,12 +427,4 @@ echo "---$(date +"%T")--- Build Complete.  Test the new image with :"
 echo "--------------    docker run --privileged -it --rm --name windows --cgroupns host --device=/dev/kvm --device=/dev/net/tun -e MEMORY=2096 -e CPU=2 -e DISK_SIZE=50 -v /sys/fs/cgroup:/sys/fs/cgroup:rw -p 0.0.0.0:3389:3389/tcp  --cap-add=NET_ADMIN --cap-add=SYS_ADMIN $docker_hub_profile/$repo_prod_name  bash"
 echo "--------------"
 
-
-#########################################################################################
-#####  Step 9 - Publish the results to hub.docker.com repository                    #####
-#########################################################################################
-
-# publish what we just created.
-echo "---$(date +"%T")--- Pushing to Docker Hub"
-/usr/bin/docker push $docker_hub_profile/$repo_prod_name > /dev/null 2>&1
-echo "---$(date +"%T")--- Pushing complete."
+# End.
