@@ -1,9 +1,19 @@
 <b>Windows on Linux </b><br>
 Have you ever wanted or needed to be able to run a Windows instance on your Linux docker infrastructure without having to install another hypervisor like virtualbox or vagrant?  Well, with these docker container images, you can do exactly that.  Then you can connect to it using any suitable RDP Client and access a full windows desktop environment. 
 
-The script in this project <code>BuildWindowsOnLinuxImage</code> is used to create the docker images described below.  To run the script, clone this project locally to your machine and run the script, specifying the vagrant box that you want.  Currently if you don't specify the image you want, windows10 will be be bundled as a default.   If you want a vagrant image with no embedded image, run the script with as follows:
+The script in this project, <code>BuildWindowsOnLinuxImage</code>, is used to create the docker images described below.  To run the script, download or clone this project to your machine and run the script, specifying the vagrant box that you want as follows, which will give you a docker image, with vagrant etc. installed, and an embedded, configured and readty-to-run vagrant box image of Microsoft Windows Server 2022 standard x64 Eval:
 
-You will need all the files from the project in a single folder as they are all required to build the bundled vagrant box in a docker image.  There is copious commenting in the code to describe whats going on, but the gist of it is as follows:
+<code>$> ./BuildWindowsOnLinuxImage peru/windows-server-2022-standard-x64-eval</code>
+
+If you don't specify an image, as follows, you'll get an otherwise empty docker image, with vagrant, kvm/qemu and libvirt installed:
+
+<code>$> ./BuildWindowsOnLinuxImage</code>
+
+The script will cache the essential vagrant box data that gets downloaded, so that any subsequent builds requesting the same vagrant box will skip the download stage by injecting the cached files directly into the final image.  It will check if the most recent vagrant box image is cached each time you build that image, and if necessary refresh the local cache.
+
+You may want to run miltiple insances of the script in parallel to reduce the build time for miltiple images. The script caters for this by assigning each build a unique ID that is used to separate the config files and intermediate docker containers from eachother, so that there is no cross-polination between running builds.
+
+You will need all the files from the project in a single folder as they are all required to build the bundled vagrant box in a docker image.  There are copious comments in the script code to describe what's going on, but the gist of it is as follows:
 
   Step 0 - Prepare to build, and figure out what we've been asked to build<br>
   Step 1 - Build an image with vagrant installed, ready for customisation<br>
@@ -16,7 +26,7 @@ You will need all the files from the project in a single folder as they are all 
   Step 8 - Remove the intermediate image used to capture the vagrant data<br>
   Step 9 - Publish the results to hub.docker.com repository<br>
 
-The reason I wrote so many steps is so that we can build as small a docker image as possible.  When you initialise a vagrant box under normal circumstances, it will download the vagrant box, then copy it locally into a local cache.  To get a running instance of the vagrant box it is sufficient to keep only one copy of the image and symlink it to the repository where vagrant wants it to be, so thats what we do here, amonng a few other things to make things reliable and to enable simple configuration of the CPU. RAM and DISK allocated to the vagrant box.  I went with this multi-stage approach because there are other metadata files that need to be included, and it give me the opportunity to delete what is not needed in the docker container to keep things relatively small, well half the size they otherwise would be, on disk.
+The reason I wrote so many steps is so that we can build as small a docker image as possible.  When you initialise a vagrant box under normal circumstances, it will download the vagrant box, then copy it locally into a local cache.  To get a running instance of the vagrant box it is sufficient to keep only one copy of the image and symlink it to the repository where vagrant wants it to be, so thats what we do here, amonng a few other things to make things reliable and to enable simple configuration of the CPU. RAM and DISK allocated to the vagrant box.  I went with this multi-stage approach because there are other metadata files that need to be included, and it give me the opportunity to delete what is not needed in the docker container to keep things relatively small, well half the size they otherwise would be on disk.
 
 For this to work, Vagrant needs to make use of your CPUs Virtualisation Extensions ( e.g. Intel VT-x ). So either your physical host need to have a CPU with these extensions physically present in the silicon and also enabled in BIOS, or your VMWare or HyperV platform has to expose these to the guest OS in which you are running docker. You can check by running the :minimalist Image, if it starts without error, then you're good to go.  Or, if you prefer, by running the following command on your docker host:
 ````
